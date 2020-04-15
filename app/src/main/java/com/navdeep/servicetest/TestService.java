@@ -1,7 +1,6 @@
 package com.navdeep.servicetest;
 
 import android.Manifest;
-import android.app.AlertDialog;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -10,7 +9,6 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
@@ -21,25 +19,28 @@ import android.os.IBinder;
 import android.util.Log;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 
-import com.google.firebase.database.DatabaseReference;
-import com.google.firebase.database.FirebaseDatabase;
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.firebase.firestore.FirebaseFirestore;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
-
-import static java.util.Locale.US;
-
 
 public class TestService extends Service {
 
     private static final String TAG = "";
-    public ArrayList<BluetoothDevice> mBTDevices = new ArrayList<>();
-    BluetoothAdapter mBluetoothAdapter;
+    private ArrayList<BluetoothDevice> mBTDevices = new ArrayList<>();
 
     //Broadcast Receiver
     private BroadcastReceiver mBroadcastReceiver3 = new BroadcastReceiver() {
@@ -72,6 +73,7 @@ public class TestService extends Service {
         startForeground(startId,notification);
 
         //Bluetooth Adapter
+        BluetoothAdapter mBluetoothAdapter;
         mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         if (mBluetoothAdapter.isDiscovering()) {
             mBluetoothAdapter.cancelDiscovery();
@@ -97,29 +99,54 @@ public class TestService extends Service {
             }
             @Override
             public void onFinish() {
-                //TimeStamp
-                SimpleDateFormat simpleDateFormat = new SimpleDateFormat("dd-MM-yyyy-hh-mm-ss", US);
-                String time = simpleDateFormat.format(new Date());
+                //Firebase Auth
+                //final FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+                //final String number =user.getPhoneNumber();
+                final String number ="+919911008666";
+
 
                 //Database Reference
-                DatabaseReference databaseReference= FirebaseDatabase.getInstance().getReference().child(time);
+                FirebaseFirestore firestore=FirebaseFirestore.getInstance();
+                Map<String,Object> Data=new HashMap<>();
 
-                //Fetch Location
-                String latitude="";
-                String longitude="";
+                //TimeStamp
+                Date currentTimeobj = Calendar.getInstance().getTime();
+                String currentDate = new SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(currentTimeobj);
+                String currentTime = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(currentTimeobj);
+                String currentDateandTime = currentDate+" at "+currentTime;
+                long dateInsecs = (currentTimeobj.getTime())/1000;
+                Data.put("TimeStamps",currentDateandTime);
+
+                //Location
+                List<Double> exactLocation=new ArrayList<>();
+                double latitude=0.0;
+                double longitude=0.0;
                 try {
                     if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                         //TODO
                     }
                     Location location = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
-                    assert location != null;
-                    latitude=String.valueOf(location.getLatitude());
-                    longitude=String.valueOf(location.getLongitude());
+                    if(location!=null)
+                    {
+                        latitude=location.getLatitude();
+                        longitude=location.getLongitude();
+                    }
+                    else{
+                        location = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+                        if(location!=null)
+                        {
+                            latitude=location.getLatitude();
+                            longitude=location.getLongitude();
+                        }
+                    }
                 }
                 catch (Exception e)
                 {
                     e.printStackTrace();
                 }
+                exactLocation.add(latitude);
+                exactLocation.add(longitude);
+                Data.put("Location",exactLocation);
 
                 //Disconnecting Bluetooth Adapter
                 try{
@@ -132,19 +159,27 @@ public class TestService extends Service {
 
                 //Pushing Data on Firebase
                 try{
-                    String temp=Integer.toString(mBTDevices.size());
-                    Toast.makeText(getApplicationContext(),temp,Toast.LENGTH_SHORT).show();
-                    databaseReference.child("Location").child("Latittude").setValue(latitude);
-                    databaseReference.child("Location").child("Longitude").setValue(longitude);
                     if(mBTDevices.size()!=0)
                     {
+                        List<String> macAddress=new ArrayList<>();
                         for(int i=0;i<mBTDevices.size();i++)
                         {
-                            String macAddress=mBTDevices.get(i).getAddress();
-                            Toast.makeText(getApplicationContext(),macAddress,Toast.LENGTH_SHORT).show();
-                            databaseReference.child("MAC").child("Address-"+ i).setValue(macAddress);
+                            String tempMacAddress=mBTDevices.get(i).getAddress();
+                            macAddress.add(tempMacAddress);
                         }
+                        Data.put("MacAddress",macAddress);
                     }
+                    firestore.collection("Profile").document(number).collection("TimeStamps").document("" + dateInsecs).set(Data).addOnSuccessListener(new OnSuccessListener<Void>() {
+                        @Override
+                        public void onSuccess(Void aVoid) {
+                            Toast.makeText(getApplicationContext(),"Success",Toast.LENGTH_SHORT).show();
+                        }
+                    }).addOnFailureListener(new OnFailureListener() {
+                        @Override
+                        public void onFailure(@NonNull Exception e) {
+                            Toast.makeText(getApplicationContext(),e.getMessage(),Toast.LENGTH_SHORT).show();
+                        }
+                    });
                 }
                 catch (Exception e)
                 {
